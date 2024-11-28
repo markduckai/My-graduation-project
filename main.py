@@ -9,6 +9,7 @@ import torch
 import utils
 from algorithms import FL_MADDPG
 from env import env_CF_MIMO
+from matplotlib.pyplot import figure, plot, xlabel, ylabel, show
 
 
 def whiten(State, L):
@@ -20,49 +21,82 @@ def whiten(State, L):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # Choose the type of the experiment
-    parser.add_argument('--experiment_type', default='custom',
-                        choices=['custom', 'power', 'ris_elements', 'learning_rate', 'decay'],
-                        help='Choose one of the experiment types to reproduce the learning curves given in the paper')
+    parser.add_argument(
+        "--experiment_type",
+        default="custom",
+        choices=["custom", "power", "ris_elements", "learning_rate", "decay"],
+        help="Choose one of the experiment types to reproduce the learning curves given in the paper",
+    )
 
     # Training-specific parameters
-    parser.add_argument("--policy", default="FL_MADDPG", help='Algorithm (default: FL_MADDPG)')
-    parser.add_argument("--env", default="CF_MIMO", help='OpenAI Gym environment name')
-    parser.add_argument("--seed", default=47, type=int, help='Seed number for PyTorch and NumPy (default: 47)')
-    parser.add_argument("--gpu", default="0", type=int, help='GPU ordinal for multi-GPU computers (default: 0)')
-    parser.add_argument("--start_time_steps", default=0, type=int, metavar='N',
-                        help='Number of exploration time steps sampling random actions (default: 0)')
-    parser.add_argument("--buffer_size", default=10000, type=int,
-                        help='Size of the experience replay buffer (default: 100000)')
-    parser.add_argument("--batch_size", default=1024, metavar='N', help='Batch size (default: 16)')
-    parser.add_argument("--save_model", action="store_true", help='Save model and optimizer parameters')
-    parser.add_argument("--load_model", default="", help='Model load file name; if empty, does not load')
+    parser.add_argument("--policy", default="FL_MADDPG", help="Algorithm (default: FL_MADDPG)")
+    parser.add_argument("--env", default="CF_MIMO", help="OpenAI Gym environment name")
+    parser.add_argument("--seed", default=53, type=int, help="Seed number for PyTorch and NumPy (default: 47)")
+    parser.add_argument("--gpu", default="0", type=int, help="GPU ordinal for multi-GPU computers (default: 0)")
+    parser.add_argument(
+        "--start_time_steps",
+        default=0,
+        type=int,
+        metavar="N",
+        help="Number of exploration time steps sampling random actions (default: 0)",
+    )
+    parser.add_argument(
+        "--buffer_size", default=10000, type=int, help="Size of the experience replay buffer (default: 100000)"
+    )
+    parser.add_argument("--batch_size", default=16, metavar="N", help="Batch size (default: 16)")
+    parser.add_argument("--save_model", action="store_true", help="Save model and optimizer parameters")
+    parser.add_argument("--load_model", default="", help="Model load file name; if empty, does not load")
 
     # Environment-specific parameters
-    parser.add_argument("--num_APs", default=64, type=int, metavar='N', help='Number of APs')
-    parser.add_argument("--num_antennas", default=64, type=int, metavar='N', help='Number of antennas in the BS')
-    parser.add_argument("--num_RIS_elements", default=64, type=int, metavar='N', help='Number of RIS elements')
-    parser.add_argument("--num_users", default=64, type=int, metavar='N', help='Number of users')
-    parser.add_argument("--area_size", default=100, type=int, metavar='N', help='Size of simulation area')
-    parser.add_argument("--power_limit", default=64, type=float, metavar='N',
-                        help='Transmission power for the constrained optimization in dB')
-    parser.add_argument("--num_time_steps_per_eps", default=100, type=int, metavar='N',
-                        help='Maximum number of steps per episode (default: 10000)')
-    parser.add_argument("--num_eps", default=64, type=int, metavar='N',
-                        help='Maximum number of episodes (default: 5000)')
-    parser.add_argument("--awgn_var", default=64, type=float, metavar='G',
-                        help='Variance of the additive white Gaussian noise (default: 1e-9)')
-    parser.add_argument("--channel_est_error", default=False, type=bool,
-                        help='Noisy channel estimate? (default: False)')
+    parser.add_argument("--num_APs", default=4, type=int, metavar="N", help="Number of APs")
+    parser.add_argument("--num_antennas", default=4, type=int, metavar="N", help="Number of antennas in the BS")
+    parser.add_argument("--num_RIS_elements", default=16, type=int, metavar="N", help="Number of RIS elements")
+    parser.add_argument("--num_users", default=4, type=int, metavar="N", help="Number of users")
+    parser.add_argument("--area_size", default=100, type=int, metavar="N", help="Size of simulation area")
+    parser.add_argument(
+        "--power_limit",
+        default=64,
+        type=float,
+        metavar="N",
+        help="Transmission power for the constrained optimization in dB",
+    )
+    parser.add_argument(
+        "--num_time_steps_per_eps",
+        default=100,
+        type=int,
+        metavar="N",
+        help="Maximum number of steps per episode (default: 10000)",
+    )
+    parser.add_argument(
+        "--num_eps", default=20, type=int, metavar="N", help="Maximum number of episodes (default: 5000)"
+    )
+    parser.add_argument(
+        "--awgn_var",
+        default=64,
+        type=float,
+        metavar="G",
+        help="Variance of the additive white Gaussian noise (default: 1e-9)",
+    )
+    parser.add_argument(
+        "--channel_est_error", default=False, type=bool, help="Noisy channel estimate? (default: False)"
+    )
 
     # Algorithm-specific parameters
-    parser.add_argument("--exploration_noise", default=0.0, metavar='G', help='Std of Gaussian exploration noise')
-    parser.add_argument("--discount", default=0.99, metavar='G', help='Discount factor for reward (default: 0.99)')
-    parser.add_argument("--tau", default=1e-2, type=float, metavar='G',
-                        help='Learning rate in soft/hard updates of the target networks (default: 0.001)')
-    parser.add_argument("--lr", default=1e-2, type=float, metavar='G',
-                        help='Learning rate for the networks (default: 0.001)')
-    parser.add_argument("--decay", default=1e-5, type=float, metavar='G',
-                        help='Decay rate for the networks (default: 0.00001)')
+    parser.add_argument("--exploration_noise", default=0.0, metavar="G", help="Std of Gaussian exploration noise")
+    parser.add_argument("--discount", default=0.99, metavar="G", help="Discount factor for reward (default: 0.99)")
+    parser.add_argument(
+        "--tau",
+        default=1e-2,
+        type=float,
+        metavar="G",
+        help="Learning rate in soft/hard updates of the target networks (default: 0.001)",
+    )
+    parser.add_argument(
+        "--lr", default=1e-2, type=float, metavar="G", help="Learning rate for the networks (default: 0.001)"
+    )
+    parser.add_argument(
+        "--decay", default=1e-5, type=float, metavar="G", help="Decay rate for the networks (default: 0.00001)"
+    )
 
     args = parser.parse_args()
 
@@ -81,14 +115,21 @@ if __name__ == "__main__":
     if args.save_model and not os.path.exists("./Models"):
         os.makedirs("./Models")
 
-    env = env_CF_MIMO.CF_MIMO_noGroup(args.num_APs, args.num_antennas, args.num_RIS_elements, args.num_users, args.area_size,
-                                    args.awgn_var, args.power_limit)
+    env = env_CF_MIMO.CF_MIMO(
+        args.num_APs,
+        args.num_antennas,
+        args.num_RIS_elements,
+        args.num_users,
+        args.area_size,
+        args.awgn_var,
+        args.power_limit,
+    )
 
     # Set seeds
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    num_fuzzy = 4
+    num_fuzzy = 3
 
     state_dim = env.state_dim
     action_dim = env.action_dim
@@ -113,7 +154,7 @@ if __name__ == "__main__":
         "critic_decay": args.decay,
         "device": device,
         "discount": args.discount,
-        "tau": args.tau
+        "tau": args.tau,
     }
 
     # # Initialize the algorithm
@@ -148,7 +189,7 @@ if __name__ == "__main__":
 
         eps_time = []
 
-        eps_rewards = []
+        eps_rewards = 0
         eps_reward_sum = []
         eps_rewardSE = []
         eps_rewardEE = []
@@ -162,7 +203,7 @@ if __name__ == "__main__":
             if i not in temp:
                 temp.append(i)
                 obs_fuzzy.append(state[i])
-        membership = utils.updatemembership(state[0: int(args.num_APs)], obs_fuzzy)
+        membership = utils.updatemembership(state[0 : int(args.num_APs)], obs_fuzzy)
 
         obs_fuzzy = np.array(obs_fuzzy)
         for t in range(int(args.num_time_steps_per_eps)):
@@ -176,10 +217,13 @@ if __name__ == "__main__":
             # Take the selected action
 
             # print(a_EE)
-            next_state, reward, _ = env.step(action_n)
-            new_obs_fuzzy = np.array(utils.getfuzzyobs(next_state[0: int(args.num_APs)], membership))
+            next_state, reward = env.step(action_n)
 
-            fuzzy_reward = np.array(utils.getfuzzyreward(reward[0:int(args.num_APs)], membership))
+            new_obs_fuzzy = np.array(utils.getfuzzyobs(next_state[0 : int(args.num_APs)], membership))
+
+            fuzzy_reward = np.array(utils.getfuzzyreward(reward[0 : int(args.num_APs)], membership)).reshape(
+                num_fuzzy, -1
+            )
             new_reward_n = fuzzy_reward
             # print(done)
             # Store data in the experience replay buffer
@@ -187,34 +231,34 @@ if __name__ == "__main__":
             # print(len(obs_fuzzy))
             replay_buffer.add(obs_fuzzy, fuzzy_action, new_obs_fuzzy, new_reward_n)
 
-
             # Train the agent
             agent.update_parameters(num_fuzzy, replay_buffer, args.batch_size)
             # print(replay_buffer.state.shape)
             for l in range(args.num_APs):
-                eps_rewards.append(reward[l])
+                # eps_rewards.append(reward[l])
                 episode_reward += reward[l]
             # print(episode_reward.item())
-            eps_reward_sum.append(episode_reward.item())
+            eps_reward_sum.append(episode_reward)
 
-            a_EE,a_SE = env._compute_EE_()
+            a_EE, a_SE, _ = env._compute_EE_()
 
             episode_time = time.time() - episode_start_time
             eps_time.append(episode_time)
 
             print(
-                f"Time step: {t + 1} Episode Num: {eps + 1} Training Time: {episode_time :.2f}s Reward: {episode_reward.item():.3f}")
+                f"Time step: {t + 1} Episode Num: {eps + 1} Training Time: {episode_time :.2f}s Reward: {episode_reward}"
+            )
             # 局部 reward _compute_EE_print(f"Time step: {t + 1} Episode Num: {episode_num + 1} Reward: {reward.sum():.3f}")(self, Phi)
             state = next_state
             obs_fuzzy = new_obs_fuzzy
-            membership = utils.updatemembership(state[0: int(args.num_APs)], obs_fuzzy)
+            membership = utils.updatemembership(state[0 : int(args.num_APs)], obs_fuzzy)
 
-
+            eps_rewards += episode_reward
             episode_reward = 0
-            episode_rewardEE = a_EE
-            episode_rewardSE = a_SE
-            episode_rewardSE += episode_rewardSE
-            episode_rewardEE += episode_rewardEE
+            # episode_rewardEE = a_EE
+            # episode_rewardSE = a_SE
+            episode_rewardSE += a_SE
+            episode_rewardEE += a_EE
 
             print("----------- episode_rewardSE ------------")
             print(episode_rewardSE)
@@ -232,13 +276,20 @@ if __name__ == "__main__":
 
             if t == args.num_time_steps_per_eps - 1.0:
                 print(
-                    f"\nTotal T: {t + 1} Episode Num: {eps + 1} Episode T: {episode_time_steps} Training T: {episode_time :.2f}s ")
+                    f"\nTotal T: {t + 1} Episode Num: {eps + 1} Episode T: {episode_time_steps} Training T: {episode_time :.2f}s  Episode EE:{episode_rewardSE/episode_time_steps}"
+                )
+
+                instant_rewards.append(eps_rewards / episode_time_steps)
+                instant_rewardsSE.append(episode_rewardSE / episode_time_steps)
+                instant_rewardsEE.append(eps_rewardEE)
+                instant_time.append(eps_time)
 
                 # Reset the environment
                 episode_start_time = time.time()
 
-                state  = env.reset()
+                state = env.reset()
                 episode_reward = 0
+                eps_rewards = 0
                 episode_rewardSE = 0
                 episode_rewardEE = 0
                 episode_opt_reward = 0
@@ -247,20 +298,33 @@ if __name__ == "__main__":
 
                 state = whiten(state, args.num_APs)
 
-                instant_rewards.append(eps_rewards)
-                instant_rewardsSE.append(eps_rewardSE)
-                instant_rewardsEE.append(eps_rewardEE)
-                instant_time.append(eps_time)
-
                 # np.save(f"./Learning Curves/{args.experiment_type}/{file_name}_episode_{episode_num + 1}", instant_rewards)
-                sio.savemat(f"./Learning Data/{args.experiment_type}/{file_name}_episode_{episode_num + 1}_reward.mat",
-                            {'instant_rewards': instant_rewards})
-                sio.savemat(f"./Learning Data/{args.experiment_type}/{file_name}_episode_{episode_num + 1}_SE.mat",
-                            {'instant_rewardsSE': instant_rewardsSE})
-                sio.savemat(f"./Learning Data/{args.experiment_type}/{file_name}_episode_{episode_num + 1}_EE.mat",
-                            {'instant_rewardsEE': instant_rewardsEE})
-                sio.savemat(f"./Learning Data/{args.experiment_type}/{file_name}_episode_{episode_num + 1}_time.mat",
-                            {'instant_time': instant_time})
+                # sio.savemat(
+                #     f"./Learning Data/{args.experiment_type}/{file_name}_episode_{episode_num + 1}_reward.mat",
+                #     {"instant_rewards": instant_rewards},
+                # )
+                # sio.savemat(
+                #     f"./Learning Data/{args.experiment_type}/{file_name}_episode_{episode_num + 1}_SE.mat",
+                #     {"instant_rewardsSE": instant_rewardsSE},
+                # )
+                # sio.savemat(
+                #     f"./Learning Data/{args.experiment_type}/{file_name}_episode_{episode_num + 1}_EE.mat",
+                #     {"instant_rewardsEE": instant_rewardsEE},
+                # )
+                # sio.savemat(
+                #     f"./Learning Data/{args.experiment_type}/{file_name}_episode_{episode_num + 1}_time.mat",
+                #     {"instant_time": instant_time},
+                # )
 
+    figure(dpi=200)
+    plot(instant_rewards, c="darkblue", marker="s")
+    xlabel("episode")
+    ylabel("rewards")
+    show()
 
+    figure(dpi=200)
+    plot(instant_rewardsSE, c="darkblue", marker="o")
+    xlabel("episode")
+    ylabel("EE")
+    show()
     # FL_MADDPG.FL_MADDPG.save("model")

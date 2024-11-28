@@ -49,8 +49,8 @@ class Env_Generate(object):
                     [(i + 0.5) * self.area_size / m, (j + 0.5) * self.area_size / n])
 
         # users are randomly distributed in the area
-        # self.user_position = np.random.uniform(0, self.area_size, (self.K, 2))
-        self.user_position = np.array([[25.5, 59.5], [70.5, 20.5], [40, 30.5], [80.5, 87],[10, 11],[95, 65]])
+        self.user_position = np.random.uniform(0, self.area_size, (self.K, 2))
+        # self.user_position = np.array([[25.5, 59.5], [70.5, 20.5], [40, 30.5], [80.5, 87],[10, 11],[95, 65]])
 
         self.disAP2user = np.zeros((self.L, self.K), dtype=complex)
         self.disRIS2user = np.zeros((self.R, self.K), dtype=complex)
