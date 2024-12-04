@@ -18,20 +18,25 @@ class CF_MIMO(object):
         area_size,
         AWGN_var,
         power_limit,
+        num_UE_antennas,
+        num_RIS,
         channel_est_error=False,
         channel_noise_var=1e-11,
     ):
         self.L = num_APs
         self.M = num_AP_antennas
-        self.R = 1  # the number of RISs
+        self.R = num_RIS  # the number of RISs
         self.N = num_RIS_elements
         self.K = num_users
+        self.U = num_UE_antennas
 
-        self.Env = Env_Generate(num_APs, num_AP_antennas, num_RIS_elements, num_users, area_size)
+        self.Env = Env_Generate(
+            num_APs, num_AP_antennas, num_RIS_elements, num_users, area_size, num_UE_antennas, num_RIS
+        )
 
-        self.awgn_var = AWGN_var * 1e-5
+        self.awgn_var = AWGN_var
 
-        self.power_limit = power_limit
+        self.power_limit = dB2power(power_limit)
 
         self.channel_est_error = channel_est_error
         self.channel_noise_var = channel_noise_var
@@ -46,15 +51,15 @@ class CF_MIMO(object):
         self.Phi = self.Env.Phi
 
         self.G_l = np.zeros((self.L, self.R * self.N, self.M), dtype=complex)
-        self.F_l = np.zeros((self.K, self.R * self.N, 1), dtype=complex)
-        self.h_hat_l = np.zeros((self.L, self.K, self.M, 1), dtype=complex)
-        self.h_hat = np.zeros((self.K, self.L * self.M, 1), dtype=complex)
+        self.F_l = np.zeros((self.K, self.R * self.N, self.U), dtype=complex)
+        self.h_hat_l = np.zeros((self.L, self.K, self.M, self.U), dtype=complex)
+        self.h_hat = np.zeros((self.K, self.L * self.M, self.U), dtype=complex)
 
         self.w_k = np.zeros((self.K, self.L * self.M), dtype=complex)
 
         power_size = 2 * self.K
 
-        channel_size = 2 * (self.N * self.M * self.R + self.N * self.K * self.R + self.M * self.K)
+        channel_size = 2 * (self.N * self.M * self.R + self.N * self.K * self.R * self.U + self.M * self.K * self.U)
 
         self.action_dim = 2 * self.M * self.K + 2 * self.R * self.N
         self.state_dim = channel_size + self.action_dim
@@ -65,7 +70,11 @@ class CF_MIMO(object):
 
         self.episode_t = None
 
-        self.EE_res = np.zeros(self.L)
+        self.EE_res = 0.0
+
+        self._compute_h_hat_()
+        self._W_generate()
+        self._compute_w_k_()
 
     def _compute_h_hat_(self):
         for k in range(self.K):
@@ -76,9 +85,9 @@ class CF_MIMO(object):
                 self.G_l[l, r * self.N : (r + 1) * self.N, :] = self.G[l, r, :, :]
         for l in range(self.L):
             for k in range(self.K):
-                tmp0 = self.H[l, k, :, :].reshape(self.M, 1)
+                tmp0 = self.H[l, k, :, :].reshape(self.M, self.U)
                 tmp1 = self.G_l[l, :, :].reshape(self.R * self.N, self.M)
-                tmp2 = self.F_l[k, :, :].reshape(self.R * self.N, 1)
+                tmp2 = self.F_l[k, :, :].reshape(self.R * self.N, self.U)
                 tmp3 = tmp1.conj().T @ self.Phi @ tmp2
                 self.h_hat_l[l, k, :, :] = tmp0 + tmp3
 
@@ -95,6 +104,9 @@ class CF_MIMO(object):
         self.episode_t = 0
         self.Env._position_generate_()
         self.Env._channel_generate_()
+        self._compute_h_hat_()
+        self._W_generate()
+        self._compute_w_k_()
 
         for l in range(self.L):
             init_action_W = np.hstack((np.real(self.W[l].reshape(1, -1)), np.imag(self.W[l].reshape(1, -1))))
@@ -136,22 +148,24 @@ class CF_MIMO(object):
             #     (init_action, power_real, power_limit, H_hat_real,H_hat_imag))
             # print("1")
 
-        self._compute_h_hat_()
-        self._compute_w_k_()
         return self.state
 
     def _compute_reward_(self):
-        reward = []
+        rewards = []
         a_EE, s_EE, EE_res = self._compute_EE_()
 
         # 根据EE返回reward
+        reward = s_EE
 
-        epsilon = 1e-6
-        # reward = [-1 if EE_res[i] <= self.EE_res[i] else 10 for i in range(self.L)]
-        reward = [min(np.divide((EE_res[i] - self.EE_res[i]), (self.EE_res[i] + epsilon)), 10) for i in range(self.L)]
-        self.EE_res = np.array(EE_res)
+        # 检查功率是否超标
+        for i in range(self.L):
+            if np.linalg.norm(self.w_k[:, i * self.M : (i + 1) * self.M]) ** 2 >= self.power_limit:
+                reward -= 10
+                break
 
-        return reward
+        rewards = [reward for _ in range(self.L)]
+
+        return rewards
 
     def step(self, action):
         Phi_real_tmp = []
@@ -187,24 +201,59 @@ class CF_MIMO(object):
     def _compute_EE_(self):
         EE_res = np.zeros(self.K, dtype=float)
         for k in range((int)(self.K)):
-            up = 0.0
-            down = (float)(np.power(self.awgn_var, 2))
+            signal_power = 0.0
+            interference_power = (float)(self.awgn_var**2)
             for l in range((int)(self.L)):
-                tmp1 = self.h_hat_l[l, k, :, :].reshape(-1, self.M)
+                tmp1 = self.h_hat_l[l, k, :, :].T
                 for j in range((int)(self.K)):
-                    tmp2 = self.w_k[j, l * self.M : (l + 1) * self.M]
-                    if j == k:
-                        up += np.sum(abs(np.power(tmp1 @ tmp2, 2)))
+                    tmp2 = self.W[l, j, :]
+                    if j != k:
+                        interference_power += np.sum(np.abs(tmp1 @ tmp2) ** 2)
                     else:
-                        down += np.sum(abs(np.power(tmp1 @ tmp2, 2)))
-            EE_res[k] = np.log2(1 + np.divide(up, down))
+                        signal_power += np.sum(np.abs(tmp1 @ tmp2) ** 2)
+
+            sinr_k = np.divide(signal_power, interference_power)
+            print(sinr_k)
+            EE_res[k] = np.log2(1 + sinr_k)
 
         s_EE = 0.0
         a_EE = 0.0
         for k in range((int)(self.K)):
             s_EE += EE_res[k]
         a_EE = np.divide(s_EE, self.K)
+        print(f"随机信道产生的 Sum-SE: {s_EE:.2f} bps/Hz")
         return a_EE, s_EE, EE_res
 
     def close(self):
         pass
+
+    def _W_generate(self):
+        for l in range(self.L):
+            for k in range(self.K):
+                self.W[l, k, :] = np.sum(self.h_hat_l[l, k, :, :].conj(), axis=1)
+                # self.W[l, k, :] /= np.linalg.norm(self.h_hat_l[l, k, :, :])
+                gamma = np.sqrt(np.divide(1.0, np.trace(self.h_hat_l[l, k, :, :] @ self.h_hat_l[l, k, :, :].conj().T)))
+                self.W[l, k, :] *= gamma
+        # self.W /= np.linalg.norm(self.W, axis=0)
+        self.W *= np.sqrt(self.power_limit / self.K)
+        self.Env.W = self.W
+
+    def _W_generate_ZF(self):
+
+        for l in range(self.L):
+            H_list = []
+            for k in range(self.K):
+                H_list.append(self.h_hat_l[l, k, :, :].T)
+            H_total = np.vstack(H_list)
+
+            # W_zf (M*(U*K))
+            W_zf = np.linalg.pinv(H_total)
+
+            for k in range(self.K):
+                self.W[l, k, :] = np.mean(W_zf[:, k * self.U : (k + 1) * self.U], axis=1)
+                H = H_list[k]
+                gamma = np.divide(1.0, np.linalg.norm(np.linalg.inv(H @ H.conj().T)))
+                self.W[l, k, :] *= gamma
+
+        self.W *= np.sqrt(self.power_limit / self.K)
+        self.Env.W = self.W

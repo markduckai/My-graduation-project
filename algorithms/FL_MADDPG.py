@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, L, M, R, N, K, power_limit, device, max_action=1):
+    def __init__(self, state_dim, action_dim, L, M, R, N, K, U, power_limit, device, max_action=1):
         super(Actor, self).__init__()
         hidden_dim = 1 if state_dim == 0 else 2 ** (state_dim - 1).bit_length()
 
@@ -17,9 +17,10 @@ class Actor(nn.Module):
 
         self.L = L
         self.M = M
-        self.R = 1
+        self.R = R
         self.N = N
         self.K = K
+        self.U = U
         self.power_limit = power_limit
 
         self.l1 = nn.Linear(state_dim, hidden_dim)
@@ -151,6 +152,7 @@ class FL_MADDPG(object):
         R,
         N,
         K,
+        U,
         power_limit,
         num_fuzzy,
         max_action,
@@ -167,20 +169,22 @@ class FL_MADDPG(object):
         self.M = M
         self.K = K
         self.N = N
+        self.U = U
+        self.R = R
         power_limit_W = 10 ** (power_limit / 10)
         self.actor_l = Actor(
-            state_dim, action_dim, L, M, R, N, K, power_limit_W, max_action=max_action, device=device
+            state_dim, action_dim, L, M, R, N, K, U, power_limit_W, max_action=max_action, device=device
         ).to(self.device)
         # # print(self.actor_l)
         # # print(state_dim)
-        self.actor = [self.actor_l for _ in range(L)]
+        self.actor = [self.actor_l for _ in range(num_fuzzy)]
         # self.critic_l = Critic(state_dim , action_dim ).to(self.device)
         self.critic_l = Critic(state_dim * num_fuzzy, action_dim * num_fuzzy).to(self.device)
         self.critic = [self.critic_l for _ in range(num_fuzzy)]
         self.actor_tl = Actor(
-            state_dim, action_dim, L, M, R, N, K, power_limit_W, max_action=max_action, device=device
+            state_dim, action_dim, L, M, R, N, K, U, power_limit_W, max_action=max_action, device=device
         ).to(self.device)
-        self.actor_target = [self.actor_tl for _ in range(L)]
+        self.actor_target = [self.actor_tl for _ in range(num_fuzzy)]
         # self.critic_tl = Critic(state_dim , action_dim ).to(self.device)
         self.critic_tl = Critic(state_dim * num_fuzzy, action_dim * num_fuzzy).to(self.device)
         self.critic_target = [self.critic_tl for _ in range(num_fuzzy)]
@@ -199,7 +203,7 @@ class FL_MADDPG(object):
         # Initialize actor networks and optimizer
         for l in range(num_fuzzy):
             self.actor[l] = Actor(
-                state_dim, action_dim, L, M, R, N, K, power_limit_W, max_action=max_action, device=device
+                state_dim, action_dim, L, M, R, N, K, U, power_limit_W, max_action=max_action, device=device
             ).to(self.device)
             self.actor_target[l] = copy.deepcopy(self.actor[l])
             self.actor_optimizer[l] = torch.optim.Adam(
@@ -220,7 +224,7 @@ class FL_MADDPG(object):
     def select_action(self, state, num_fuzzy):
         # # # print the shape of layer1
         # # print(self.actor.l1.weight.shape)
-        action = np.zeros((num_fuzzy, 2 * self.M * self.K + 2 * self.N))
+        action = np.zeros((num_fuzzy, 2 * self.M * self.K + 2 * self.R * self.N))
         for l in range(num_fuzzy):
             self.actor[l].eval()
             state = torch.tensor(state.reshape(num_fuzzy, -1)).to(self.device)
@@ -244,7 +248,9 @@ class FL_MADDPG(object):
             # # print(self.actor_target[l]((next_state[:,l,:].reshape(batch_size, -1).reshape(batch_size, 1, -1))))
             #
             # # Compute the target Q-value
-            next_action_old = np.zeros((batch_size, num_fuzzy, 2 * self.M * self.K + 2 * self.N), dtype=complex)
+            next_action_old = np.zeros(
+                (batch_size, num_fuzzy, 2 * self.M * self.K + 2 * self.R * self.N), dtype=complex
+            )
             for i in range(num_fuzzy):
                 next_action_old[:, i, :] = (
                     self.actor_target[l](next_state[:, i, :].reshape(batch_size, -1)).detach().cpu().numpy()
