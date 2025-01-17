@@ -1,3 +1,4 @@
+# STAR-RIS 版本
 import argparse
 import os
 import time
@@ -12,9 +13,24 @@ from env import env_CF_MIMO
 from matplotlib.pyplot import figure, plot, xlabel, ylabel, show
 
 
-def whiten(State, L):
-    for l in range(L):
-        State[l] = (State[l] - np.mean(State[l])) / np.std(State[l])
+def whiten(State, env):
+    for l in range(env.L):
+        # State[l] = (State[l] - np.mean(State[l])) / np.std(State[l])
+        minW = np.min(State[l, : 2 * (env.M * env.K)])
+        maxW = np.max(State[l, : 2 * (env.M * env.K)])
+        State[l, : 2 * (env.M * env.K)] = (State[l, : 2 * (env.M * env.K)] - minW) / (maxW - minW)
+
+        minPhi = np.min(State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 2 * (env.R * env.N)])
+        maxPhi = np.max(State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 2 * (env.R * env.N)])
+        State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 2 * (env.R * env.N)] = (
+            State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 2 * (env.R * env.N)] - minPhi
+        ) / (maxPhi - minPhi)
+
+        mindis = np.min(State[l, 2 * (env.M * env.K) + 2 * (env.R * env.N) :])
+        maxdis = np.max(State[l, 2 * (env.M * env.K) + 2 * (env.R * env.N) :])
+        State[l, 2 * (env.M * env.K) + 2 * (env.R * env.N) :] = (
+            State[l, 2 * (env.M * env.K) + 2 * (env.R * env.N) :] - mindis
+        ) / (maxdis - mindis)
     return State
 
 
@@ -43,34 +59,34 @@ if __name__ == "__main__":
     parser.add_argument(
         "--buffer_size", default=10000, type=int, help="Size of the experience replay buffer (default: 100000)"
     )
-    parser.add_argument("--batch_size", default=16, metavar="N", help="Batch size (default: 16)")
+    parser.add_argument("--batch_size", default=128, metavar="N", help="Batch size (default: 16)")
     parser.add_argument("--save_model", action="store_true", help="Save model and optimizer parameters")
     parser.add_argument("--load_model", default="", help="Model load file name; if empty, does not load")
 
     # Environment-specific parameters
     parser.add_argument("--num_APs", default=4, type=int, metavar="N", help="Number of APs")
-    parser.add_argument("--num_antennas", default=12, type=int, metavar="N", help="Number of antennas in the BS")
-    parser.add_argument("--num_RIS", default=4, type=int, metavar="N", help="Number of RIS")
-    parser.add_argument("--num_RIS_elements", default=16, type=int, metavar="N", help="Number of RIS elements")
+    parser.add_argument("--num_antennas", default=8, type=int, metavar="N", help="Number of antennas in the BS")
+    parser.add_argument("--num_RIS", default=2, type=int, metavar="N", help="Number of RIS")
+    parser.add_argument("--num_RIS_elements", default=8, type=int, metavar="N", help="Number of RIS elements")
     parser.add_argument("--num_users", default=4, type=int, metavar="N", help="Number of users")
     parser.add_argument("--num_antennas_users", default=2, type=int, metavar="N", help="Number of antennas in the UE")
     parser.add_argument("--area_size", default=100, type=int, metavar="N", help="Size of simulation area")
     parser.add_argument(
         "--power_limit",
-        default=4,
+        default=0,
         type=float,
         metavar="N",
         help="Transmission power for the constrained optimization in dB",
     )
     parser.add_argument(
         "--num_time_steps_per_eps",
-        default=200,
+        default=3500,
         type=int,
         metavar="N",
         help="Maximum number of steps per episode (default: 10000)",
     )
     parser.add_argument(
-        "--num_eps", default=20, type=int, metavar="N", help="Maximum number of episodes (default: 5000)"
+        "--num_eps", default=1, type=int, metavar="N", help="Maximum number of episodes (default: 5000)"
     )
     parser.add_argument(
         "--awgn_var",
@@ -84,7 +100,7 @@ if __name__ == "__main__":
     )
 
     # Algorithm-specific parameters
-    parser.add_argument("--exploration_noise", default=0.0, metavar="G", help="Std of Gaussian exploration noise")
+    parser.add_argument("--exploration_noise", default=0.01, metavar="G", help="Std of Gaussian exploration noise")
     parser.add_argument("--discount", default=0.99, metavar="G", help="Discount factor for reward (default: 0.99)")
     parser.add_argument(
         "--tau",
@@ -94,7 +110,7 @@ if __name__ == "__main__":
         help="Learning rate in soft/hard updates of the target networks (default: 0.001)",
     )
     parser.add_argument(
-        "--lr", default=5e-3, type=float, metavar="G", help="Learning rate for the networks (default: 0.001)"
+        "--lr", default=1e-3, type=float, metavar="G", help="Learning rate for the networks (default: 0.001)"
     )
     parser.add_argument(
         "--decay", default=1e-5, type=float, metavar="G", help="Decay rate for the networks (default: 0.00001)"
@@ -132,10 +148,31 @@ if __name__ == "__main__":
     # print(env.Env.H)
     # print(env.Env.G)
     # print(env.Env.F)
-    # print(env.W)
-    env._compute_EE_()
-    exit()
+    # env._compute_EE_()
+    # exit()
+    # ee = []
 
+    # for _ in range(10000):
+    #     env = env_CF_MIMO.CF_MIMO(
+    #         args.num_APs,
+    #         args.num_antennas,
+    #         args.num_RIS_elements,
+    #         args.num_users,
+    #         args.area_size,
+    #         args.awgn_var,
+    #         args.power_limit,
+    #         args.num_antennas_users,
+    #         args.num_RIS,
+    #     )
+    #     _, se, _ = env._compute_EE_()
+    #     ee.append(se)
+
+    # figure(dpi=200)
+    # plot(ee, c="darkblue", marker="s")
+    # xlabel("episode")
+    # ylabel("SE")
+    # show()
+    # exit()
     # Set seeds
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -189,7 +226,7 @@ if __name__ == "__main__":
         # replay_buffer = utils.ExperienceReplayBuffer(num_fuzzy, state_dim, action_dim, max_size=args.buffer_size)
 
         state = env.reset()
-        state = whiten(state, args.num_APs)
+        # state = whiten(state, env)
         episode_reward = 0
         episode_rewardSE = 0
         episode_rewardEE = 0
@@ -208,7 +245,7 @@ if __name__ == "__main__":
         for t in range(int(args.num_time_steps_per_eps)):
             # Choose action from the policy
 
-            action_n = agent.select_action(state)
+            action_n = agent.select_action(state, 0.1, t, args.exploration_noise)
 
             # action_l l
 
@@ -221,7 +258,9 @@ if __name__ == "__main__":
             # Store data in the experience replay buffer
             # print(state.shape)
             # print(len(obs_fuzzy))
-            replay_buffer.add(state, action_n, next_state, np.array(reward).reshape(args.num_APs, -1))
+            replay_buffer.add(
+                whiten(state, env), action_n, whiten(next_state, env), np.array(reward).reshape(args.num_APs, -1)
+            )
 
             # Train the agent
             agent.update_parameters(replay_buffer, args.batch_size)
@@ -251,14 +290,15 @@ if __name__ == "__main__":
             episode_rewardSE += a_SE
             # episode_rewardEE += a_EE
 
-            print("----------- episode_rewardSE ------------")
-            print(episode_rewardSE)
+            # print("----------- episode_rewardSE ------------")
+            # print(episode_rewardSE)
+            eps_rewardSE.append(a_SE)
             # print("----------- episode_rewardEE ------------")
             # print(episode_rewardEE)
-            state = whiten(state, args.num_APs)
+            # state = whiten(state, env)
             # print(replay_buffer.state.shape)
-            eps_rewardSE.append(episode_rewardSE)
-            eps_rewardEE.append(episode_rewardEE)
+            # eps_rewardSE.append(episode_rewardSE)
+            # eps_rewardEE.append(episode_rewardEE)
 
             # replay_buffer = utils.ExperienceReplayBuffer(num_fuzzy, state_dim, action_dim, max_size=args.buffer_size)
             # print(replay_buffer.state.shape)
@@ -266,6 +306,7 @@ if __name__ == "__main__":
             episode_time_steps += 1
 
             if t == args.num_time_steps_per_eps - 1.0:
+                break
                 print(
                     f"\nTotal T: {t + 1} Episode Num: {eps + 1} Episode T: {episode_time_steps} Training T: {episode_time :.2f}s  Episode EE:{episode_rewardSE/episode_time_steps}"
                 )
@@ -287,7 +328,7 @@ if __name__ == "__main__":
                 episode_time_steps = 0
                 # episode_num += 1
 
-                state = whiten(state, args.num_APs)
+                # state = whiten(state, env)
 
                 # np.save(f"./Learning Curves/{args.experiment_type}/{file_name}_episode_{episode_num + 1}", instant_rewards)
                 # sio.savemat(
@@ -308,14 +349,23 @@ if __name__ == "__main__":
                 # )
 
     figure(dpi=200)
-    plot(instant_rewards, c="darkblue", marker="s")
+    plot(eps_rewardSE, c="darkblue", marker="s")
     xlabel("episode")
-    ylabel("rewards")
+    ylabel("SE")
     show()
 
-    figure(dpi=200)
-    plot(instant_rewardsSE, c="red", marker="o")
-    xlabel("episode")
-    ylabel("EE")
-    show()
+    _, SE_MADDPG, _ = env._compute_EE_()
+
+    env._W_generate()
+    _, SE_MRT, _ = env._compute_EE_()
+
+    env._W_generate_ave()
+    _, SE_RANDOM, _ = env._compute_EE_()
+
+    print(f"MADDPG:{SE_MADDPG}, MRT:{SE_MRT}, RANDOM:{SE_RANDOM}")
+    # figure(dpi=200)
+    # plot(instant_rewardsSE, c="red", marker="o")
+    # xlabel("episode")
+    # ylabel("EE")
+    # show()
     # FL_MADDPG.FL_MADDPG.save("model")

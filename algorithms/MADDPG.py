@@ -44,12 +44,11 @@ class Actor(nn.Module):
         W_imag = actor[:, self.M * self.K : 2 * (self.M * self.K)].cpu().data.numpy()
         # print(W_imag.shape)
         W = W_real.reshape(W_real.shape[0], self.K, self.M) + 1j * W_imag.reshape(W_imag.shape[0], self.K, (self.M))
-
         WW_H = W[0] @ W[0].conjugate().T
         if np.real(np.trace(WW_H)) > self.power_limit:
             W = W * (np.real(np.trace(WW_H)) / self.power_limit)
-            W_real = W * np.sqrt(2)
-            W_imag = W * np.sqrt(2)
+            W_real = W_real * np.sqrt(2)
+            W_imag = W_imag * np.sqrt(2)
         WW_H = W[0] @ W[0].conjugate().T
         # print(WW_H==0)
         # # print(torch.from_numpy(np.array(np.real(np.trace(WW_H)))).reshape(-1, 1))
@@ -83,6 +82,7 @@ class Actor(nn.Module):
         # print(actor.shape)
         actor = self.bn2(actor)
         actor = torch.tanh(self.l3(actor))
+        # actor.data[:, : 2 * (self.M) * (self.K)] *= np.sqrt(self.power_limit / (2 * self.K * self.M))
         # print(actor.shape)
         # print(actor.detach().shape)
         # Normalize the transmission power and phase matrix
@@ -121,7 +121,7 @@ class Actor(nn.Module):
         # print(actor.shape)
 
         # print((actor / division_term))
-        return self.max_action * actor
+        return self.max_action * actor / division_term
 
 
 class Critic(nn.Module):
@@ -176,6 +176,8 @@ class MADDPG(object):
         self.N = N
         self.U = U
         self.R = R
+        self.action_dim = action_dim
+        self.power_limit = 10 ** (power_limit / 10)
         power_limit_W = 10 ** (power_limit / 10)
         self.actor_l = Actor(
             state_dim, action_dim, L, M, R, N, K, U, power_limit_W, max_action=max_action, device=device
@@ -226,15 +228,25 @@ class MADDPG(object):
         self.discount = discount
         self.tau = tau
 
-    def select_action(self, state):
+    def select_action(self, state, episilon, step, noise_rate):
         # # # print the shape of layer1
         # # print(self.actor.l1.weight.shape)
         action = np.zeros((self.L, 2 * self.M * self.K + 2 * self.R * self.N))
-        for l in range(self.L):
-            self.actor[l].eval()
-            state = torch.tensor(state.reshape(self.L, -1)).to(self.device)
-            # action 赋值
-            action[l] = self.actor[l](state[l].reshape(1, -1)).cpu().data.numpy().flatten().reshape(1, -1)
+
+        # 在探索初期以episilon的概率做随机动作
+        if np.random.uniform() < episilon and step < 2000:
+            for l in range(self.L):
+                action[l] = np.random.uniform(-1, 1, (2 * self.M * self.K + 2 * self.R * self.N))
+                action[l, : (2 * self.M * self.K)] *= np.sqrt(self.power_limit / (2 * self.K * self.M))
+        else:
+            for l in range(self.L):
+                self.actor[l].eval()
+                newstate = torch.tensor(state.reshape(self.L, -1)).to(self.device)
+                # action 赋值
+                action[l] = self.actor[l](newstate[l].reshape(1, -1)).cpu().data.numpy().flatten().reshape(1, -1)
+                noise = noise_rate * np.random.randn(self.action_dim)
+                noise[: (2 * self.M * self.K)] *= np.sqrt(self.power_limit / (2 * self.K * self.M))
+                action[l] += noise
 
         return action
 
@@ -251,21 +263,21 @@ class MADDPG(object):
             # # print(self.actor_target[l]((next_state[:,l,:].reshape(batch_size, -1).reshape(batch_size, 1, -1))))
             #
             # # Compute the target Q-value
-            next_action_old = np.zeros((batch_size, self.L, 2 * self.M * self.K + 2 * self.R * self.N), dtype=complex)
-            for l in range(self.L):
-                next_action_old[:, l, :] = (
-                    self.actor_target[l](next_state[:, l, :].reshape(batch_size, -1)).detach().cpu().numpy()
-                )
-            next_action = torch.tensor(next_action_old).to(self.device)
-            for l in range(self.L):
-                next_action[:, l, :] = self.actor_target[l](next_state[:, l, :])
+            next_action = np.zeros((batch_size, self.L, 2 * self.M * self.K + 2 * self.R * self.N), dtype=float)
+            # for l in range(self.L):
+            #     next_action_old[:, l, :] = (
+            #         self.actor_target[l](next_state[:, l, :].reshape(batch_size, -1)).detach().cpu().numpy()
+            #     )
+            next_action = torch.tensor(next_action).to(self.device)
+            for i in range(self.L):
+                next_action[:, i, :] = self.actor_target[i](next_state[:, i, :])
 
             # print(next_action.shape)
             target_Q = self.critic_target[l](
                 next_state.reshape(batch_size, -1), next_action.to(torch.float).reshape(batch_size, -1)
             )
 
-            target_Q = reward[:, :, 0] + (self.discount * target_Q).detach()
+            target_Q = reward[:, l] + (self.discount * target_Q).detach()
 
             # Get the current Q-value estimate
             current_Q = self.critic[l](state.reshape(batch_size, -1), action.reshape(batch_size, -1))
@@ -278,10 +290,10 @@ class MADDPG(object):
             self.critic_optimizer[l].step()
 
             # Compute the actor loss
-            new_action_old = self.actor[l](state.reshape(self.L * batch_size, -1)).reshape(batch_size, self.L, -1)
-            new_action = new_action_old
-            for l in range(self.L):
-                new_action[:, l, :] = self.actor[l](state[:, l, :])
+            new_action = self.actor[l](state.reshape(self.L * batch_size, -1)).reshape(batch_size, self.L, -1)
+            # new_action = new_action_old
+            for i in range(self.L):
+                new_action[:, i, :] = self.actor[i](state[:, i, :])
             # print(new_action.shape)
             actor_loss = -self.critic[l](
                 state.reshape(batch_size, -1), new_action.to(torch.float).reshape(batch_size, -1)
