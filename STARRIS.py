@@ -8,8 +8,8 @@ import scipy.io as sio
 import torch
 
 import utils
-from algorithms import MADDPG
-from env import env_CF_MIMO
+from algorithms import MADDPG_STARRIS
+from env import env_CF_MIMO_STARRIS
 from matplotlib.pyplot import figure, plot, xlabel, ylabel, show
 
 
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     # if args.save_model and not os.path.exists("./Models"):
     #     os.makedirs("./Models")
 
-    env = env_CF_MIMO.CF_MIMO(
+    env = env_CF_MIMO_STARRIS.CF_MIMO(
         args.num_APs,
         args.num_antennas,
         args.num_STARRIS_elements,
@@ -207,7 +207,7 @@ if __name__ == "__main__":
     # the algorithm is arg.policy
     algo = args.policy
     if algo == "MADDPG":
-        agent = MADDPG.MADDPG(**kwargs)
+        agent = MADDPG_STARRIS.MADDPG(**kwargs)
 
     # replay_buffer = utils.ExperienceReplayBuffer(args.num_APs, state_dim, action_dim, max_size=args.buffer_size)
     replay_buffer = utils.ExperienceReplayBuffer(args.num_APs, state_dim, action_dim, max_size=args.buffer_size)
