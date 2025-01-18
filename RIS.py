@@ -64,12 +64,12 @@ if __name__ == "__main__":
     parser.add_argument("--load_model", default="", help="Model load file name; if empty, does not load")
 
     # Environment-specific parameters
-    parser.add_argument("--num_APs", default=4, type=int, metavar="N", help="Number of APs")
+    parser.add_argument("--num_APs", default=2, type=int, metavar="N", help="Number of APs")
     parser.add_argument("--num_antennas", default=8, type=int, metavar="N", help="Number of antennas in the BS")
     parser.add_argument("--num_RIS", default=2, type=int, metavar="N", help="Number of RIS")
     parser.add_argument("--num_RIS_elements", default=8, type=int, metavar="N", help="Number of RIS elements")
     parser.add_argument("--num_users", default=4, type=int, metavar="N", help="Number of users")
-    parser.add_argument("--num_antennas_users", default=2, type=int, metavar="N", help="Number of antennas in the UE")
+    parser.add_argument("--num_antennas_users", default=1, type=int, metavar="N", help="Number of antennas in the UE")
     parser.add_argument("--area_size", default=100, type=int, metavar="N", help="Size of simulation area")
     parser.add_argument(
         "--power_limit",

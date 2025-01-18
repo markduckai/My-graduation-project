@@ -20,14 +20,14 @@ def whiten(State, env):
         maxW = np.max(State[l, : 2 * (env.M * env.K)])
         State[l, : 2 * (env.M * env.K)] = (State[l, : 2 * (env.M * env.K)] - minW) / (maxW - minW)
 
-        minPhi = np.min(State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 2 * (env.R * env.N)])
-        maxPhi = np.max(State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 2 * (env.R * env.N)])
-        State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 2 * (env.R * env.N)] = (
-            State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 2 * (env.R * env.N)] - minPhi
+        minPhi = np.min(State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 4 * (env.R * env.N)])
+        maxPhi = np.max(State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 4 * (env.R * env.N)])
+        State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 4 * (env.R * env.N)] = (
+            State[l, 2 * (env.M * env.K) : 2 * (env.M * env.K) + 4 * (env.R * env.N)] - minPhi
         ) / (maxPhi - minPhi)
 
-        mindis = np.min(State[l, 2 * (env.M * env.K) + 2 * (env.R * env.N) :])
-        maxdis = np.max(State[l, 2 * (env.M * env.K) + 2 * (env.R * env.N) :])
+        mindis = np.min(State[l, 2 * (env.M * env.K) + 4 * (env.R * env.N) :])
+        maxdis = np.max(State[l, 2 * (env.M * env.K) + 4 * (env.R * env.N) :])
         State[l, 2 * (env.M * env.K) + 2 * (env.R * env.N) :] = (
             State[l, 2 * (env.M * env.K) + 2 * (env.R * env.N) :] - mindis
         ) / (maxdis - mindis)
@@ -59,17 +59,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--buffer_size", default=10000, type=int, help="Size of the experience replay buffer (default: 100000)"
     )
-    parser.add_argument("--batch_size", default=128, metavar="N", help="Batch size (default: 16)")
+    parser.add_argument("--batch_size", default=64, metavar="N", help="Batch size (default: 16)")
     parser.add_argument("--save_model", action="store_true", help="Save model and optimizer parameters")
     parser.add_argument("--load_model", default="", help="Model load file name; if empty, does not load")
 
     # Environment-specific parameters
-    parser.add_argument("--num_APs", default=4, type=int, metavar="N", help="Number of APs")
+    parser.add_argument("--num_APs", default=2, type=int, metavar="N", help="Number of APs")
     parser.add_argument("--num_antennas", default=8, type=int, metavar="N", help="Number of antennas in the BS")
-    parser.add_argument("--num_RIS", default=2, type=int, metavar="N", help="Number of RIS")
-    parser.add_argument("--num_RIS_elements", default=8, type=int, metavar="N", help="Number of RIS elements")
+    parser.add_argument("--num_STARRIS", default=2, type=int, metavar="N", help="Number of RIS")
+    parser.add_argument("--num_STARRIS_elements", default=8, type=int, metavar="N", help="Number of RIS elements")
     parser.add_argument("--num_users", default=4, type=int, metavar="N", help="Number of users")
-    parser.add_argument("--num_antennas_users", default=2, type=int, metavar="N", help="Number of antennas in the UE")
+    parser.add_argument("--num_antennas_users", default=1, type=int, metavar="N", help="Number of antennas in the UE")
     parser.add_argument("--area_size", default=100, type=int, metavar="N", help="Size of simulation area")
     parser.add_argument(
         "--power_limit",
@@ -80,7 +80,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--num_time_steps_per_eps",
-        default=3500,
+        default=4500,
         type=int,
         metavar="N",
         help="Maximum number of steps per episode (default: 10000)",
@@ -136,13 +136,13 @@ if __name__ == "__main__":
     env = env_CF_MIMO.CF_MIMO(
         args.num_APs,
         args.num_antennas,
-        args.num_RIS_elements,
+        args.num_STARRIS_elements,
         args.num_users,
         args.area_size,
         args.awgn_var,
         args.power_limit,
         args.num_antennas_users,
-        args.num_RIS,
+        args.num_STARRIS,
     )
 
     # print(env.Env.H)
@@ -188,8 +188,8 @@ if __name__ == "__main__":
         "action_dim": action_dim,
         "L": args.num_APs,
         "M": args.num_antennas,
-        "R": args.num_RIS,
-        "N": args.num_RIS_elements,
+        "R": args.num_STARRIS,
+        "N": args.num_STARRIS_elements,
         "K": args.num_users,
         "U": args.num_antennas_users,
         "power_limit": args.power_limit,
