@@ -11,6 +11,7 @@ class Actor(nn.Module):
         super(Actor, self).__init__()
         hidden_dim = 1 if state_dim == 0 else 2 ** (state_dim - 1).bit_length()
 
+        hidden_dim = 256
         # # print(state_dim)
         # # print(hidden_dim)
         self.device = device
@@ -84,9 +85,11 @@ class Actor(nn.Module):
         # Apply batch normalization to the each hidden layer's input
         actor = self.bn1(actor)
         actor = torch.tanh(self.l2(actor))
+
         # print(actor.shape)
         actor = self.bn2(actor)
         actor = torch.tanh(self.l3(actor))
+
         # actor.data[:, : 2 * (self.M) * (self.K)] *= np.sqrt(self.power_limit / (2 * self.K * self.M))
         # print(actor.shape)
         # print(actor.detach().shape)
@@ -138,7 +141,7 @@ class Actor(nn.Module):
         # print(actor.shape)
 
         # print((actor / division_term))
-        return self.max_action * actor / division_term
+        return self.max_action * actor
 
 
 class Critic(nn.Module):
@@ -146,22 +149,23 @@ class Critic(nn.Module):
         super(Critic, self).__init__()
         hidden_dim = 1 if (state_dim + action_dim) == 0 else 2 ** ((state_dim + action_dim) - 1).bit_length()
 
+        hidden_dim =512
+
         self.l1 = nn.Linear(state_dim, hidden_dim)
         self.l2 = nn.Linear(hidden_dim + action_dim, hidden_dim)
         self.l3 = nn.Linear(hidden_dim, L)
 
         self.bn1 = nn.BatchNorm1d(hidden_dim)
+        self.bn2 = nn.BatchNorm1d(hidden_dim)
 
     def forward(self, state, action):
         q = torch.tanh(self.l1(state.float()))
 
         q = self.bn1(q)
-        # # print(type(q))
-        # # print(type(action))
+
         q = torch.tanh(self.l2(torch.cat([q, action], 1)))
 
         q = self.l3(q)
-
         return q
 
 
@@ -245,13 +249,18 @@ class MADDPG(object):
         self.discount = discount
         self.tau = tau
 
-    def select_action(self, state, episilon, step, noise_rate):
+        self.episilon_start =  0.9
+        self.episilon_end = 0.0001
+        self.episilon_decay = 0.995
+        self.episilon = self.episilon_start
+
+    def select_action(self, state, noise_rate):
         # # # print the shape of layer1
         # # print(self.actor.l1.weight.shape)
         action = np.zeros((self.L, 2 * self.M * self.K + 4 * self.R * self.N))
 
         # 在探索初期以episilon的概率做随机动作
-        if np.random.uniform() < episilon and step < 2000:
+        if np.random.uniform() < self.episilon:
             for l in range(self.L):
                 action[l] = np.random.uniform(-1, 1, (2 * self.M * self.K + 4 * self.R * self.N))
                 action[l, : (2 * self.M * self.K)] *= np.sqrt(self.power_limit / (2 * self.K * self.M))
@@ -261,9 +270,16 @@ class MADDPG(object):
                 newstate = torch.tensor(state.reshape(self.L, -1)).to(self.device)
                 # action 赋值
                 action[l] = self.actor[l](newstate[l].reshape(1, -1)).cpu().data.numpy().flatten().reshape(1, -1)
+                action[l, : (2 * self.M * self.K)] *= np.sqrt(self.power_limit / (2 * self.K * self.M))
+                # action[l,(2 * self.M * self.K):]*=np.pi
+                # action[l,(2 * self.M * self.K):] = np.exp(action[l,(2 * self.M * self.K):])
                 noise = noise_rate * np.random.randn(self.action_dim)
                 noise[: (2 * self.M * self.K)] *= np.sqrt(self.power_limit / (2 * self.K * self.M))
+                # noise[(2 * self.M * self.K):]*=np.pi
+                # noise[(2 * self.M * self.K):] = np.exp((noise[(2 * self.M * self.K):]))
                 action[l] += noise
+
+        self.episilon = max(self.episilon*self.episilon_decay,self.episilon_end)
 
         return action
 

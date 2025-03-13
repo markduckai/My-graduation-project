@@ -75,6 +75,8 @@ class CF_MIMO(object):
 
         self.EE_res = 0.0
 
+        self.LastRewards = [0 for _ in range(self.L)]
+
         #  STAR-RIS采用ES策略,并且将传输和反射的gamma因子 T/R 设为该变量
         self.STARRIS_RATE = 1
         self.STARRIS_T = None
@@ -223,10 +225,10 @@ class CF_MIMO(object):
                             interference_vector += tmp1 @ tmp2
                         interference_power += np.linalg.norm(interference_vector) ** 2
                 sinr_k = np.divide(signal_power, interference_power)
-                reward += sinr_k
+                reward += np.log2(1+sinr_k)
                 # print(sinr_k)
             rewards.append(reward)
-        print(rewards)
+        # print(rewards)
         return rewards
 
     def step(self, action):
@@ -254,10 +256,10 @@ class CF_MIMO(object):
 
             self.W[l] = W_real.reshape(self.K, self.M) + 1j * W_imag.reshape(self.K, self.M)
 
-        Phi_real_T = np.mean(np.array(Phi_real_T_tmp), axis=0)
-        Phi_imag_T = np.mean(np.array(Phi_imag_T_tmp), axis=0)
-        Phi_real_R = np.mean(np.array(Phi_real_R_tmp), axis=0)
-        Phi_imag_R = np.mean(np.array(Phi_imag_R_tmp), axis=0)
+        Phi_real_T = np.mean(np.array(Phi_real_T_tmp), axis=0)*np.sqrt(self.STARRIS_T)
+        Phi_imag_T = np.mean(np.array(Phi_imag_T_tmp), axis=0)*np.sqrt(self.STARRIS_T)
+        Phi_real_R = np.mean(np.array(Phi_real_R_tmp), axis=0)*np.sqrt(self.STARRIS_R)
+        Phi_imag_R = np.mean(np.array(Phi_imag_R_tmp), axis=0)*np.sqrt(self.STARRIS_R)
 
         self.Phi_T = np.eye(self.R * self.N, dtype=complex) * (Phi_real_T + 1j * Phi_imag_T)
         self.Phi_R = np.eye(self.R * self.N, dtype=complex) * (Phi_real_R + 1j * Phi_imag_R)

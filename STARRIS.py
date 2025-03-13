@@ -10,7 +10,11 @@ import torch
 import utils
 from algorithms import MADDPG_STARRIS
 from env import env_CF_MIMO_STARRIS
-from matplotlib.pyplot import figure, plot, xlabel, ylabel, show
+import matplotlib as mpl
+
+mpl.use("Agg")
+from matplotlib.pyplot import figure, plot, xlabel, ylabel, show, savefig, close, legend
+from scipy.interpolate import interp1d
 
 
 def whiten(State, env):
@@ -47,7 +51,7 @@ if __name__ == "__main__":
     # Training-specific parameters
     parser.add_argument("--policy", default="MADDPG", help="Algorithm (default: FL_MADDPG)")
     parser.add_argument("--env", default="CF_MIMO", help="OpenAI Gym environment name")
-    parser.add_argument("--seed", default=47, type=int, help="Seed number for PyTorch and NumPy (default: 47)")
+    parser.add_argument("--seed", default=53, type=int, help="Seed number for PyTorch and NumPy (default: 47)")
     parser.add_argument("--gpu", default="0", type=int, help="GPU ordinal for multi-GPU computers (default: 0)")
     parser.add_argument(
         "--start_time_steps",
@@ -59,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--buffer_size", default=10000, type=int, help="Size of the experience replay buffer (default: 100000)"
     )
-    parser.add_argument("--batch_size", default=64, metavar="N", help="Batch size (default: 16)")
+    parser.add_argument("--batch_size", default=256, metavar="N", help="Batch size (default: 16)")
     parser.add_argument("--save_model", action="store_true", help="Save model and optimizer parameters")
     parser.add_argument("--load_model", default="", help="Model load file name; if empty, does not load")
 
@@ -70,7 +74,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_STARRIS_elements", default=8, type=int, metavar="N", help="Number of RIS elements")
     parser.add_argument("--num_users", default=4, type=int, metavar="N", help="Number of users")
     parser.add_argument("--num_antennas_users", default=1, type=int, metavar="N", help="Number of antennas in the UE")
-    parser.add_argument("--area_size", default=100, type=int, metavar="N", help="Size of simulation area")
+    parser.add_argument("--area_size", default=500, type=int, metavar="N", help="Size of simulation area")
     parser.add_argument(
         "--power_limit",
         default=0,
@@ -80,7 +84,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--num_time_steps_per_eps",
-        default=4500,
+        default=3000,
         type=int,
         metavar="N",
         help="Maximum number of steps per episode (default: 10000)",
@@ -226,7 +230,7 @@ if __name__ == "__main__":
         # replay_buffer = utils.ExperienceReplayBuffer(num_fuzzy, state_dim, action_dim, max_size=args.buffer_size)
 
         state = env.reset()
-        # state = whiten(state, env)
+
         episode_reward = 0
         episode_rewardSE = 0
         episode_rewardEE = 0
@@ -245,7 +249,7 @@ if __name__ == "__main__":
         for t in range(int(args.num_time_steps_per_eps)):
             # Choose action from the policy
 
-            action_n = agent.select_action(state, 0.1, t, args.exploration_noise)
+            action_n = agent.select_action(state, args.exploration_noise)
 
             # action_l l
 
@@ -258,12 +262,11 @@ if __name__ == "__main__":
             # Store data in the experience replay buffer
             # print(state.shape)
             # print(len(obs_fuzzy))
-            replay_buffer.add(
-                whiten(state, env), action_n, whiten(next_state, env), np.array(reward).reshape(args.num_APs, -1)
-            )
+            replay_buffer.add(state, action_n, next_state, np.array(reward).reshape(args.num_APs, -1))
 
             # Train the agent
-            agent.update_parameters(replay_buffer, args.batch_size)
+            if t >= args.batch_size:
+                agent.update_parameters(replay_buffer, args.batch_size)
             # print(replay_buffer.state.shape)
             for l in range(args.num_APs):
                 # eps_rewards.append(reward[l])
@@ -283,12 +286,8 @@ if __name__ == "__main__":
             # 局部 reward _compute_EE_print(f"Time step: {t + 1} Episode Num: {episode_num + 1} Reward: {reward.sum():.3f}")(self, Phi)
             state = next_state
 
-            eps_rewards += episode_reward
+            eps_rewardEE.append(episode_reward / args.num_APs)
             episode_reward = 0
-            # episode_rewardEE = a_EE
-            # episode_rewardSE = a_SE
-            episode_rewardSE += a_SE
-            # episode_rewardEE += a_EE
 
             # print("----------- episode_rewardSE ------------")
             # print(episode_rewardSE)
@@ -349,10 +348,40 @@ if __name__ == "__main__":
                 # )
 
     figure(dpi=200)
-    plot(eps_rewardSE, c="darkblue", marker="s")
-    xlabel("episode")
+
+    plot(eps_rewardSE, c="darkblue", linewidth=1)
+    xlabel("step")
     ylabel("SE")
     show()
+    savefig("sample.png")
+    close()
+
+    reward_average = []
+    x = []
+    cnt = 0
+    reward_av = 0
+    reward_average.append(eps_rewardEE[0])
+    x.append(0)
+    for i in range(1, args.num_time_steps_per_eps):
+        reward_av += eps_rewardEE[i]
+        cnt += 1
+        if cnt % 50 == 0:
+            x.append(i)
+            reward_average.append(reward_av / 50)
+            reward_av = 0
+
+    x = np.array(x)
+    model = interp1d(x, reward_average, kind="cubic")
+    xs = np.linspace(0, x.max(), (int)(args.num_time_steps_per_eps / 7))
+    rewards = model(xs)
+    plot(xs, rewards, c="red", linewidth=1)
+    # plot(eps_rewardEE,c="red",linewidth=1)
+    xlabel("step")
+    ylabel("reward")
+    # legend(["Average Reward", "Instant Reward"], loc=0)
+    show()
+    savefig("sample_reward.png")
+    close()
 
     _, SE_MADDPG, _ = env._compute_EE_()
 
@@ -362,7 +391,7 @@ if __name__ == "__main__":
     env._W_generate_ave()
     _, SE_RANDOM, _ = env._compute_EE_()
 
-    print(f"MADDPG:{SE_MADDPG}, MRT:{SE_MRT}, RANDOM:{SE_RANDOM}")
+    print(f"MADDPG:{max(eps_rewardSE)}, MRT:{SE_MRT}, RANDOM:{SE_RANDOM}")
     # figure(dpi=200)
     # plot(instant_rewardsSE, c="red", marker="o")
     # xlabel("episode")
